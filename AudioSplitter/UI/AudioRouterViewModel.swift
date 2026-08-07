@@ -11,9 +11,12 @@ import Combine
 import SwiftUI
 
 public enum OutputTag: String, CaseIterable, Identifiable {
-    case bassOnly = "Only Bass"
-    case midTreble = "Mid & Treble"
-    case fullRange = "Combine All (Full Range)"
+    case bass = "Bass"
+    case bassMid = "Bass Mid"
+    case bassTreble = "Bass Treble"
+    case mid = "Mid"
+    case midTreble = "Mid Treble"
+    case treble = "Treble"
 
     public var id: String { self.rawValue }
 }
@@ -31,7 +34,7 @@ public struct DeviceControlState: Identifiable, Hashable {
     public init(
         id: AudioDeviceID,
         name: String,
-        tag: OutputTag = .fullRange,
+        tag: OutputTag = .bassMid,
         volume: Double = 1.0,
         delaySeconds: Double = 0.0,
         bassEQ: Double = 1.0,
@@ -53,8 +56,11 @@ public struct DeviceControlState: Identifiable, Hashable {
 public final class AudioRouterViewModel: ObservableObject {
 
     @Published public var isRunning: Bool = false
-    @Published public var cutoffHz: Double = 120.0 {
-        didSet { crossover.setCutoff(cutoffHz) }
+    @Published public var lowCutoffHz: Double = 120.0 {
+        didSet { crossover.setLowCutoff(lowCutoffHz) }
+    }
+    @Published public var highCutoffHz: Double = 2000.0 {
+        didSet { crossover.setHighCutoff(highCutoffHz) }
     }
     @Published public var errorMessage: String?
     @Published public var deviceControls: [DeviceControlState] = []
@@ -62,7 +68,7 @@ public final class AudioRouterViewModel: ObservableObject {
     public let deviceRouting = DeviceRoutingManager()
 
     private var captureSource: AudioSource?
-    private let crossover = CrossoverFilter(cutoffHz: 120.0, sampleRate: 48000.0, channelCount: 2)
+    private let crossover = CrossoverFilter(lowCutoffHz: 120.0, highCutoffHz: 2000.0, sampleRate: 48000.0, channelCount: 2)
     private let outputManager = MultiOutputManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -87,10 +93,13 @@ public final class AudioRouterViewModel: ObservableObject {
                 updatedControls.append(existing)
             } else {
                 let defaultTag: OutputTag
-                if device.name.lowercased().contains("built-in") || device.name.lowercased().contains("terintegrasi") {
+                let nameLower = device.name.lowercased()
+                if nameLower.contains("built-in") || nameLower.contains("terintegrasi") {
                     defaultTag = .midTreble
+                } else if nameLower.contains("subwoofer") || nameLower.contains("bass") {
+                    defaultTag = .bass
                 } else {
-                    defaultTag = .bassOnly
+                    defaultTag = .bassMid
                 }
                 updatedControls.append(DeviceControlState(
                     id: device.id,
@@ -128,18 +137,24 @@ public final class AudioRouterViewModel: ObservableObject {
             let source = AudioCaptureFactory.makeSource()
             source.onBuffer = { [weak self] buffer, time in
                 guard let self else { return }
-                guard let (bass, mid) = self.crossover.split(buffer) else { return }
+                guard let (bass, mid, treble) = self.crossover.split(buffer) else { return }
 
                 // Distribusikan buffer ke masing-masing device berdasarkan tag & konfigurasinya
                 for control in self.deviceControls {
                     let targetBuffer: AVAudioPCMBuffer
                     switch control.tag {
-                    case .bassOnly:
+                    case .bass:
                         targetBuffer = bass
-                    case .midTreble:
+                    case .bassMid:
+                        targetBuffer = self.combine(bass, mid)
+                    case .bassTreble:
+                        targetBuffer = self.combine(bass, treble)
+                    case .mid:
                         targetBuffer = mid
-                    case .fullRange:
-                        targetBuffer = buffer
+                    case .midTreble:
+                        targetBuffer = self.combine(mid, treble)
+                    case .treble:
+                        targetBuffer = treble
                     }
 
                     // Update Volume & EQ secara real-time
@@ -170,5 +185,27 @@ public final class AudioRouterViewModel: ObservableObject {
         captureSource = nil
         outputManager.stop()
         isRunning = false
+    }
+
+    /// Menggabungkan dua buffer PCM dengan menjumlahkan data sinyalnya
+    private func combine(_ first: AVAudioPCMBuffer, _ second: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let firstData = first.floatChannelData,
+              let secondData = second.floatChannelData,
+              let outBuffer = AVAudioPCMBuffer(pcmFormat: first.format, frameCapacity: first.frameCapacity) else {
+            return first
+        }
+
+        outBuffer.frameLength = first.frameLength
+        let channels = Int(first.format.channelCount)
+        let frames = Int(first.frameLength)
+
+        guard let outData = outBuffer.floatChannelData else { return first }
+
+        for ch in 0..<channels {
+            for f in 0..<frames {
+                outData[ch][f] = firstData[ch][f] + secondData[ch][f]
+            }
+        }
+        return outBuffer
     }
 }

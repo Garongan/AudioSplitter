@@ -3,8 +3,8 @@
 //  AudioSplitter
 //
 //  Mengelola banyak AVAudioEngine terpisah (satu engine per device output fisik).
-//  Mendukung query format native masing-masing device, EQ independen per device,
-//  serta per-device delay compensation untuk sinkronisasi audio yang presisi.
+//  Mendukung query format native masing-masing device secara dinamis lewat Core Audio HAL,
+//  EQ independen per device, serta per-device delay compensation untuk sinkronisasi audio.
 //
 
 import AVFoundation
@@ -30,11 +30,19 @@ public final class DeviceOutputState {
     }
 
     public func configure() throws {
-        let format = getDeviceNativeFormat(deviceID)
+        // Format Sumber default dari Crossover: 48kHz, Stereo
+        let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
 
-        // Hubungkan player -> EQ -> Mixer -> Output
-        engine.connect(playerNode, to: eqNode, format: format)
-        engine.connect(eqNode, to: engine.mainMixerNode, format: format)
+        // 1. Programmatic Query Format Native dari Perangkat Output Fisik
+        let nativeFormat = getDeviceNativeFormat(deviceID)
+
+        // 2. Hubungkan player -> EQ menggunakan source format (48kHz)
+        engine.connect(playerNode, to: eqNode, format: sourceFormat)
+
+        // 3. Hubungkan EQ -> Mixer menggunakan nativeFormat perangkat fisik.
+        //    AVAudioEngine secara otomatis mengonfigurasi SRC (Sample Rate Converter) yang sangat efisien
+        //    di bawah tenda untuk menyelaraskan buffer 48kHz ke laju fisik native (misalnya 44.1kHz atau 96kHz).
+        engine.connect(eqNode, to: engine.mainMixerNode, format: nativeFormat)
 
         // Tetapkan physical output device pada output unit
         try assignDevice(deviceID, to: engine)
@@ -113,45 +121,26 @@ public final class DeviceOutputState {
         playerNode.scheduleBuffer(buffer, at: time, options: .interrupts)
     }
 
+    /// Query format fisik native dari Core Audio Hardware Layer (HAL).
     private func getDeviceNativeFormat(_ deviceID: AudioDeviceID) -> AVAudioFormat {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeGlobal,
+            mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: kAudioDevicePropertyScopeOutput,
             mElement: 0
         )
-        var sampleRate: Double = 48000.0
-        var size = UInt32(MemoryLayout<Double>.size)
-        var status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &sampleRate)
-        if status != noErr {
-            sampleRate = 48000.0
-        }
 
-        var channelAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreamConfiguration,
-            mScope: kAudioObjectPropertyScopeOutput,
-            mElement: 0
-        )
-        var channelSize: UInt32 = 0
-        status = AudioObjectGetPropertyDataSize(deviceID, &channelAddress, 0, nil, &channelSize)
-        var channels = 2
-        if status == noErr, channelSize > 0 {
-            let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(channelSize))
-            defer { bufferList.deallocate() }
-            status = AudioObjectGetPropertyData(deviceID, &channelAddress, 0, nil, &channelSize, bufferList)
-            if status == noErr {
-                var totalChannels = 0
-                let count = Int(bufferList.pointee.mNumberBuffers)
-                let buffers = UnsafeMutableBufferPointer(start: &bufferList.pointee.mBuffers, count: count)
-                for i in 0..<count {
-                    totalChannels += Int(buffers[i].mNumberChannels)
-                }
-                if totalChannels > 0 {
-                    channels = totalChannels
-                }
+        var streamDesc = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &streamDesc)
+
+        if status == noErr {
+            if let format = AVAudioFormat(streamDescription: &streamDesc) {
+                return format
             }
         }
 
-        return AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels)) ?? AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
+        // Fallback default jika terjadi kegagalan query HAL
+        return AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
     }
 }
 
