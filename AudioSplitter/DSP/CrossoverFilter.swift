@@ -16,14 +16,15 @@ import AVFoundation
 
 /// Satu biquad section (2nd order IIR filter) dengan status targeting persisten untuk real-time threads.
 private struct BiquadSection {
-    var coefficients: [Float] // [b0, b1, b2, a1, a2] format vDSP_biquad (Float)
+    var coefficients: [Double] // [b0, b1, b2, a1, a2] format vDSP_biquad (Double coefficients for setup)
     var setup: vDSP_biquad_Setup?
     var delay: [Float] // state / delay line, 4 x channelCount
 
-    init(coefficients: [Float], channelCount: Int) {
+    init(coefficients: [Double], channelCount: Int) {
         self.coefficients = coefficients
         self.setup = coefficients.withUnsafeBufferPointer { ptr in
-            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
+            guard let baseAddress = ptr.baseAddress else { return nil }
+            return vDSP_biquad_CreateSetup(baseAddress, 1)
         }
         self.delay = [Float](repeating: 0, count: 4 * channelCount)
     }
@@ -39,7 +40,7 @@ private func butterworth2ndOrderCoefficients(
     cutoffHz: Double,
     sampleRate: Double,
     type: FilterType
-) -> [Float] {
+) -> [Double] {
     let omega = 2.0 * .pi * cutoffHz / sampleRate
     let sinOmega = sin(omega)
     let cosOmega = cos(omega)
@@ -64,11 +65,11 @@ private func butterworth2ndOrderCoefficients(
     a1 = -2 * cosOmega
     a2 = 1 - alpha
 
-    let c0 = Float(b0 / a0)
-    let c1 = Float(b1 / a0)
-    let c2 = Float(b2 / a0)
-    let c3 = Float(a1 / a0)
-    let c4 = Float(a2 / a0)
+    let c0 = b0 / a0
+    let c1 = b1 / a0
+    let c2 = b2 / a0
+    let c3 = a1 / a0
+    let c4 = a2 / a0
     return [c0, c1, c2, c3, c4]
 }
 
@@ -101,10 +102,12 @@ public final class LinkwitzRileyFilter {
         stage1.coefficients = coeffs
         stage2.coefficients = coeffs
         stage1.setup = coeffs.withUnsafeBufferPointer { ptr in
-            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
+            guard let baseAddress = ptr.baseAddress else { return nil }
+            return vDSP_biquad_CreateSetup(baseAddress, 1)
         }
         stage2.setup = coeffs.withUnsafeBufferPointer { ptr in
-            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
+            guard let baseAddress = ptr.baseAddress else { return nil }
+            return vDSP_biquad_CreateSetup(baseAddress, 1)
         }
     }
 
