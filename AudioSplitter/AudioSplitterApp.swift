@@ -14,7 +14,7 @@ struct AudioSplitterApp: App {
     @StateObject private var router = AudioRouterViewModel()
 
     var body: some Scene {
-        MenuBarExtra("Audio Splitter", systemImage: "waveform.and.arrow.up.arrow.down") {
+        MenuBarExtra("Audio Splitter", systemImage: "waveform.path") {
             ContentView()
                 .environmentObject(router)
                 .frame(width: 340)

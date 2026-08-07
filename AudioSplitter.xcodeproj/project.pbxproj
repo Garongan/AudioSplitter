@@ -7,18 +7,28 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BD6CE06530263300001FE411 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; };
-		BD6CE06630263300001FE411 /* XCTest.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		BD983C443026401800FD80AC /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; };
+		BD983C453026401800FD80AC /* XCTest.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		BD983C3D30263F9000FD80AC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BD6CE02D3025F983001FE411 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BD6CE0343025F983001FE411;
+			remoteInfo = AudioSplitter;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
-		BD6CE06730263300001FE411 /* Embed Frameworks */ = {
+		BD983C463026401800FD80AC /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				BD6CE06630263300001FE411 /* XCTest.framework in Embed Frameworks */,
+				BD983C453026401800FD80AC /* XCTest.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -28,12 +38,18 @@
 /* Begin PBXFileReference section */
 		BD6CE0353025F983001FE411 /* AudioSplitter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioSplitter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD6CE06430263300001FE411 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
+		BD983C3930263F9000FD80AC /* AudioSplitterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AudioSplitterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		BD6CE0373025F983001FE411 /* AudioSplitter */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AudioSplitter;
+			sourceTree = "<group>";
+		};
+		BD983C3A30263F9000FD80AC /* AudioSplitterTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AudioSplitterTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -43,7 +59,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BD6CE06530263300001FE411 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BD983C3630263F9000FD80AC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BD983C443026401800FD80AC /* XCTest.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -54,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				BD6CE0373025F983001FE411 /* AudioSplitter */,
+				BD983C3A30263F9000FD80AC /* AudioSplitterTests */,
 				BD6CE06330263300001FE411 /* Frameworks */,
 				BD6CE0363025F983001FE411 /* Products */,
 			);
@@ -63,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				BD6CE0353025F983001FE411 /* AudioSplitter.app */,
+				BD983C3930263F9000FD80AC /* AudioSplitterTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -85,7 +110,6 @@
 				BD6CE0313025F983001FE411 /* Sources */,
 				BD6CE0323025F983001FE411 /* Frameworks */,
 				BD6CE0333025F983001FE411 /* Resources */,
-				BD6CE06730263300001FE411 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -101,6 +125,30 @@
 			productReference = BD6CE0353025F983001FE411 /* AudioSplitter.app */;
 			productType = "com.apple.product-type.application";
 		};
+		BD983C3830263F9000FD80AC /* AudioSplitterTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BD983C4130263F9000FD80AC /* Build configuration list for PBXNativeTarget "AudioSplitterTests" */;
+			buildPhases = (
+				BD983C3530263F9000FD80AC /* Sources */,
+				BD983C3630263F9000FD80AC /* Frameworks */,
+				BD983C3730263F9000FD80AC /* Resources */,
+				BD983C463026401800FD80AC /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BD983C3E30263F9000FD80AC /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BD983C3A30263F9000FD80AC /* AudioSplitterTests */,
+			);
+			name = AudioSplitterTests;
+			packageProductDependencies = (
+			);
+			productName = AudioSplitterTests;
+			productReference = BD983C3930263F9000FD80AC /* AudioSplitterTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -113,6 +161,10 @@
 				TargetAttributes = {
 					BD6CE0343025F983001FE411 = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					BD983C3830263F9000FD80AC = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = BD6CE0343025F983001FE411;
 					};
 				};
 			};
@@ -131,12 +183,20 @@
 			projectRoot = "";
 			targets = (
 				BD6CE0343025F983001FE411 /* AudioSplitter */,
+				BD983C3830263F9000FD80AC /* AudioSplitterTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		BD6CE0333025F983001FE411 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BD983C3730263F9000FD80AC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -153,7 +213,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BD983C3530263F9000FD80AC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BD983C3E30263F9000FD80AC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BD6CE0343025F983001FE411 /* AudioSplitter */;
+			targetProxy = BD983C3D30263F9000FD80AC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BD6CE03E3025F984001FE411 /* Debug */ = {
@@ -334,6 +409,44 @@
 			};
 			name = Release;
 		};
+		BD983C3F30263F9000FD80AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alvindo.AudioSplitterTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AudioSplitter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AudioSplitter";
+			};
+			name = Debug;
+		};
+		BD983C4030263F9000FD80AC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alvindo.AudioSplitterTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AudioSplitter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AudioSplitter";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -351,6 +464,15 @@
 			buildConfigurations = (
 				BD6CE0413025F984001FE411 /* Debug */,
 				BD6CE0423025F984001FE411 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BD983C4130263F9000FD80AC /* Build configuration list for PBXNativeTarget "AudioSplitterTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BD983C3F30263F9000FD80AC /* Debug */,
+				BD983C4030263F9000FD80AC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
