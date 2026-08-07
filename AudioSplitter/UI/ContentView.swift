@@ -22,7 +22,7 @@ struct ContentView: View {
                         Text("Audio Splitter")
                             .font(.title2)
                             .fontWeight(.bold)
-                        Text("macOS Frequency-Based Router")
+                        Text("macOS 3-Way Frequency Router")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -50,18 +50,38 @@ struct ContentView: View {
                     .cornerRadius(6)
                 }
 
-                // Crossover Control Panel
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Crossover Cutoff: \(Int(router.cutoffHz)) Hz")
-                            .font(.headline)
-                        Spacer()
-                        Text("Linkwitz-Riley 4th Order")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                // Crossover Control Panel (3-Way: Low & High Cutoffs)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("3-Way Crossover Cutoffs")
+                        .font(.headline)
+
+                    // Low Cutoff Slider
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("Low Cutoff (Bass/Mid):")
+                                .font(.caption)
+                            Spacer()
+                            Text("\(Int(router.lowCutoffHz)) Hz")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Slider(value: $router.lowCutoffHz, in: 40...500, step: 1)
+                            .accentColor(.blue)
                     }
-                    Slider(value: $router.cutoffHz, in: 40...300, step: 1)
-                        .accentColor(.purple)
+
+                    // High Cutoff Slider
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("High Cutoff (Mid/Treble):")
+                                .font(.caption)
+                            Spacer()
+                            Text("\(Int(router.highCutoffHz)) Hz")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        Slider(value: $router.highCutoffHz, in: 1000...8000, step: 50)
+                            .accentColor(.orange)
+                    }
                 }
                 .padding()
                 .background(Color(NSColor.windowBackgroundColor))
@@ -73,7 +93,7 @@ struct ContentView: View {
 
                 Divider()
 
-                // Connected Devices Grid/Cards
+                // Connected Devices Cards
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Output Speaker Sources")
@@ -95,7 +115,6 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                             .padding(.vertical, 20)
                     } else {
-                        // Vertical grid of device cards
                         VStack(spacing: 12) {
                             ForEach(0..<router.deviceControls.count, id: \.self) { index in
                                 DeviceCardView(control: $router.deviceControls[index])
@@ -116,7 +135,7 @@ struct ContentView: View {
             }
             .padding()
         }
-        .frame(minHeight: 500)
+        .frame(minHeight: 550)
     }
 }
 
@@ -142,16 +161,18 @@ struct DeviceCardView: View {
             }
 
             // Output Tag
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Role Tag")
-                    .font(.caption2)
+            HStack {
+                Text("Role Tag:")
+                    .font(.caption)
                     .foregroundColor(.secondary)
+                Spacer()
                 Picker("", selection: $control.tag) {
                     ForEach(OutputTag.allCases) { tag in
                         Text(tag.rawValue).tag(tag)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                .frame(width: 150)
             }
 
             // Volume and Delay

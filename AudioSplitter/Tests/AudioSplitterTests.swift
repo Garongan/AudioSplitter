@@ -9,11 +9,12 @@ import AVFoundation
 
 final class AudioSplitterTests: XCTestCase {
 
-    /// Menguji performa pemisahan frekuensi CrossoverFilter (Linkwitz-Riley).
-    func testCrossoverFilterSplit() {
-        let cutoffHz = 120.0
+    /// Menguji performa pemisahan frekuensi 3-Way CrossoverFilter.
+    func testCrossoverFilter3WaySplit() {
+        let lowCutoffHz = 120.0
+        let highCutoffHz = 2000.0
         let sampleRate = 48000.0
-        let crossover = CrossoverFilter(cutoffHz: cutoffHz, sampleRate: sampleRate, channelCount: 2)
+        let crossover = CrossoverFilter(lowCutoffHz: lowCutoffHz, highCutoffHz: highCutoffHz, sampleRate: sampleRate, channelCount: 2)
 
         // Buat format PCM audio buffer stereo 48kHz
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
@@ -28,7 +29,7 @@ final class AudioSplitterTests: XCTestCase {
         }
         inputBuffer.frameLength = frameCount
 
-        // Isi buffer dengan sinyal impulse (1.0 di sample pertama)
+        // Sinyal impulse
         if let channels = inputBuffer.floatChannelData {
             channels[0][0] = 1.0
             channels[1][0] = 1.0
@@ -38,29 +39,34 @@ final class AudioSplitterTests: XCTestCase {
             }
         }
 
-        // Jalankan pemisahan crossover
+        // Jalankan pemisahan crossover 3-way
         guard let result = crossover.split(inputBuffer) else {
             XCTFail("Crossover split mengembalikan nil")
             return
         }
 
         XCTAssertEqual(result.bass.frameLength, frameCount)
-        XCTAssertEqual(result.midTreble.frameLength, frameCount)
+        XCTAssertEqual(result.mid.frameLength, frameCount)
+        XCTAssertEqual(result.treble.frameLength, frameCount)
         XCTAssertEqual(result.bass.format.sampleRate, sampleRate)
-        XCTAssertEqual(result.midTreble.format.channelCount, 2)
+        XCTAssertEqual(result.mid.format.channelCount, 2)
+        XCTAssertEqual(result.treble.format.channelCount, 2)
 
-        // Verifikasi filter memisahkan energi impulse (bass vs treble)
+        // Verifikasi semua band memiliki kontribusi energi sinyal
         if let bassData = result.bass.floatChannelData,
-           let midData = result.midTreble.floatChannelData {
-            // Sinyal bass dan treble tidak boleh kosong (all zeros) setelah impulse melewati biquad
+           let midData = result.mid.floatChannelData,
+           let trebleData = result.treble.floatChannelData {
             var bassSum: Float = 0
             var midSum: Float = 0
+            var trebleSum: Float = 0
             for i in 0..<Int(frameCount) {
                 bassSum += abs(bassData[0][i])
                 midSum += abs(midData[0][i])
+                trebleSum += abs(trebleData[0][i])
             }
-            XCTAssertGreaterThan(bassSum, 0.0)
-            XCTAssertGreaterThan(midSum, 0.0)
+            XCTAssertGreaterThan(bassSum, 0.0, "Sinyal Bass tidak boleh kosong")
+            XCTAssertGreaterThan(midSum, 0.0, "Sinyal Mid tidak boleh kosong")
+            XCTAssertGreaterThan(trebleSum, 0.0, "Sinyal Treble tidak boleh kosong")
         }
     }
 
@@ -78,7 +84,7 @@ final class AudioSplitterTests: XCTestCase {
         let control = DeviceControlState(
             id: 12345,
             name: "Test Bluetooth Speaker",
-            tag: .bassOnly,
+            tag: .bassMid,
             volume: 0.8,
             delaySeconds: 0.15,
             bassEQ: 1.5,
@@ -88,7 +94,7 @@ final class AudioSplitterTests: XCTestCase {
 
         XCTAssertEqual(control.id, 12345)
         XCTAssertEqual(control.name, "Test Bluetooth Speaker")
-        XCTAssertEqual(control.tag, .bassOnly)
+        XCTAssertEqual(control.tag, .bassMid)
         XCTAssertEqual(control.volume, 0.8)
         XCTAssertEqual(control.delaySeconds, 0.15)
         XCTAssertEqual(control.bassEQ, 1.5)
@@ -96,22 +102,25 @@ final class AudioSplitterTests: XCTestCase {
         XCTAssertEqual(control.trebleEQ, 1.0)
     }
 
-    /// Menguji fallback DeviceRoutingManager di lingkungan tanpa hardware Core Audio fisik (e.g. CI / Sandbox).
+    /// Menguji fallback DeviceRoutingManager di lingkungan tanpa hardware Core Audio fisik.
     @MainActor
     func testDeviceRoutingManagerFallbacks() {
         let routing = DeviceRoutingManager()
-
-        // Dalam sandbox, ketersediaan hardware device bisa kosong, verifikasi fallback bekerja
-        XCTAssertFalse(routing.availableDevices.isEmpty, "Device list harus diisi dengan fallback jika sistem kosong")
+        XCTAssertFalse(routing.availableDevices.isEmpty)
 
         let builtIn = routing.builtInSpeakerDevice()
-        XCTAssertNotNil(builtIn, "Harus bisa mendeteksi / menyediakan built-in speaker")
+        XCTAssertNotNil(builtIn)
     }
 
-    /// Menguji kategori tag dan raw id.
+    /// Menguji 6 kategori tag yang baru.
     func testOutputTagCases() {
-        XCTAssertEqual(OutputTag.bassOnly.rawValue, "Only Bass")
-        XCTAssertEqual(OutputTag.midTreble.rawValue, "Mid & Treble")
-        XCTAssertEqual(OutputTag.fullRange.rawValue, "Combine All (Full Range)")
+        let cases = OutputTag.allCases
+        XCTAssertEqual(cases.count, 6)
+        XCTAssertTrue(cases.contains(.bass))
+        XCTAssertTrue(cases.contains(.bassMid))
+        XCTAssertTrue(cases.contains(.bassTreble))
+        XCTAssertTrue(cases.contains(.mid))
+        XCTAssertTrue(cases.contains(.midTreble))
+        XCTAssertTrue(cases.contains(.treble))
     }
 }

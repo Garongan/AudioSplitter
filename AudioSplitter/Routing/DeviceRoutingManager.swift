@@ -27,11 +27,39 @@ public final class DeviceRoutingManager: ObservableObject {
 
     @Published public private(set) var availableDevices: [AudioDeviceInfo] = []
 
+    // Mutex lock and registry untuk lifetime tracking thread-safe dari callback context
+    private static let lock = NSLock()
+    private static var activeContexts = Set<UnsafeMutableRawPointer>()
+
+    private static func registerContext(_ context: UnsafeMutableRawPointer) {
+        lock.lock()
+        activeContexts.insert(context)
+        lock.unlock()
+    }
+
+    private static func unregisterContext(_ context: UnsafeMutableRawPointer) {
+        lock.lock()
+        activeContexts.remove(context)
+        lock.unlock()
+    }
+
+    private static func isContextActive(_ context: UnsafeMutableRawPointer) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeContexts.contains(context)
+    }
+
     private let listenerProc: AudioObjectPropertyListenerProc = { (objectID, numberAddresses, addresses, clientData) -> OSStatus in
         guard let clientData = clientData else { return noErr }
-        let manager = Unmanaged<DeviceRoutingManager>.fromOpaque(clientData).takeUnretainedValue()
-        DispatchQueue.main.async {
-            manager.refreshDevices()
+
+        // Lakukan pengecekan apakah context manager ini masih aktif dan tidak sedang dealloc
+        if DeviceRoutingManager.isContextActive(clientData) {
+            let manager = Unmanaged<DeviceRoutingManager>.fromOpaque(clientData).takeUnretainedValue()
+            DispatchQueue.main.async {
+                if DeviceRoutingManager.isContextActive(clientData) {
+                    manager.refreshDevices()
+                }
+            }
         }
         return noErr
     }
@@ -42,22 +70,20 @@ public final class DeviceRoutingManager: ObservableObject {
     }
 
     deinit {
-        // Unregister property listener di main thread secara sinkron / asinkron untuk mencegah crash
-        let proc = listenerProc
         let context = Unmanaged.passUnretained(self).toOpaque()
-        DispatchQueue.main.async {
-            var address = AudioObjectPropertyAddress(
-                mSelector: kAudioHardwarePropertyDevices,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: 0
-            )
-            _ = AudioObjectRemovePropertyListener(
-                AudioObjectID(kAudioObjectSystemObject),
-                &address,
-                proc,
-                context
-            )
-        }
+        DeviceRoutingManager.unregisterContext(context)
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: 0
+        )
+        _ = AudioObjectRemovePropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            listenerProc,
+            context
+        )
     }
 
     private func registerListener() {
@@ -67,6 +93,8 @@ public final class DeviceRoutingManager: ObservableObject {
             mElement: 0
         )
         let context = Unmanaged.passUnretained(self).toOpaque()
+        DeviceRoutingManager.registerContext(context)
+
         let status = AudioObjectAddPropertyListener(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
@@ -74,6 +102,7 @@ public final class DeviceRoutingManager: ObservableObject {
             context
         )
         if status != noErr {
+            DeviceRoutingManager.unregisterContext(context)
             print("Warning: Gagal mendaftarkan property listener kAudioHardwarePropertyDevices: \(status)")
         }
     }
@@ -95,7 +124,6 @@ public final class DeviceRoutingManager: ObservableObject {
         )
 
         guard status == noErr, size > 0 else {
-            // Fallback default jika terjadi kegagalan query HAL
             self.availableDevices = [
                 AudioDeviceInfo(id: 1, name: "Mac Speaker Terintegrasi", hasOutput: true),
                 AudioDeviceInfo(id: 2, name: "Bluetooth Headphone Eksternal", hasOutput: true)
@@ -125,7 +153,6 @@ public final class DeviceRoutingManager: ObservableObject {
         var discovered: [AudioDeviceInfo] = []
 
         for deviceID in deviceIDs {
-            // 1. Ambil Nama Device
             var nameAddress = AudioObjectPropertyAddress(
                 mSelector: kAudioObjectPropertyName,
                 mScope: kAudioObjectPropertyScopeGlobal,
@@ -143,7 +170,6 @@ public final class DeviceRoutingManager: ObservableObject {
             )
             let deviceName = (nameStatus == noErr && nameCF != nil) ? (nameCF! as String) : "Audio Device \(deviceID)"
 
-            // 2. Cek apakah memiliki output stream
             var streamsAddress = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyStreams,
                 mScope: kAudioDevicePropertyScopeOutput,
@@ -164,7 +190,6 @@ public final class DeviceRoutingManager: ObservableObject {
             }
         }
 
-        // Jika tidak ada device output fisik terdeteksi (e.g. headless CI), sediakan fallback
         if discovered.isEmpty {
             discovered = [
                 AudioDeviceInfo(id: 1, name: "Mac Speaker Terintegrasi", hasOutput: true),
@@ -179,8 +204,6 @@ public final class DeviceRoutingManager: ObservableObject {
         availableDevices.first { $0.name.lowercased().contains("built-in") || $0.name.lowercased().contains("terintegrasi") || $0.name.lowercased().contains("speaker") }
     }
 
-    /// Membuat Aggregate Device programatik yang menggabungkan dua atau lebih device fisik
-    /// jadi satu logical device untuk kemudahan routing.
     public func createAggregateDevice(name: String, subDeviceUIDs: [String]) throws -> AudioDeviceID {
         var desc: [String: Any] = [:]
         desc[kAudioAggregateDeviceNameKey] = name
