@@ -114,16 +114,17 @@ public final class LinkwitzRileyFilter {
     /// Process buffer in-place (mono channel float array) using Float vDSP APIs.
     public func process(_ input: inout [Float]) {
         guard let setup1 = stage1.setup, let setup2 = stage2.setup else { return }
-        var temp = [Float](repeating: 0, count: input.count)
+        let count = input.count
+        var temp = [Float](repeating: 0, count: count)
 
         input.withUnsafeMutableBufferPointer { inPtr in
             temp.withUnsafeMutableBufferPointer { tempPtr in
-                vDSP_biquad(setup1, &stage1.delay, inPtr.baseAddress!, 1, tempPtr.baseAddress!, 1, vDSP_Length(input.count))
+                vDSP_biquad(setup1, &stage1.delay, inPtr.baseAddress!, 1, tempPtr.baseAddress!, 1, vDSP_Length(count))
             }
         }
         temp.withUnsafeMutableBufferPointer { tempPtr in
             input.withUnsafeMutableBufferPointer { outPtr in
-                vDSP_biquad(setup2, &stage2.delay, tempPtr.baseAddress!, 1, outPtr.baseAddress!, 1, vDSP_Length(input.count))
+                vDSP_biquad(setup2, &stage2.delay, tempPtr.baseAddress!, 1, outPtr.baseAddress!, 1, vDSP_Length(count))
             }
         }
     }
