@@ -2,7 +2,7 @@
 //  AudioRouterViewModel.swift
 //  AudioSplitter
 //
-//  Menghubungkan AudioCaptureEngine -> CrossoverFilter -> DualOutputManager.
+//  Menghubungkan AudioCaptureEngine -> CrossoverFilter -> MultiOutputManager.
 //  Menjadi source of truth untuk UI (ContentView).
 //
 
@@ -10,45 +10,151 @@ import AVFoundation
 import Combine
 import SwiftUI
 
-@MainActor
-final class AudioRouterViewModel: ObservableObject {
+public enum OutputTag: String, CaseIterable, Identifiable {
+    case bassOnly = "Only Bass"
+    case midTreble = "Mid & Treble"
+    case fullRange = "Combine All (Full Range)"
 
-    @Published var isRunning: Bool = false
-    @Published var cutoffHz: Double = 120.0 {
+    public var id: String { self.rawValue }
+}
+
+public struct DeviceControlState: Identifiable, Hashable {
+    public let id: AudioDeviceID
+    public let name: String
+    public var tag: OutputTag
+    public var volume: Double
+    public var delaySeconds: Double
+    public var bassEQ: Double
+    public var midEQ: Double
+    public var trebleEQ: Double
+
+    public init(
+        id: AudioDeviceID,
+        name: String,
+        tag: OutputTag = .fullRange,
+        volume: Double = 1.0,
+        delaySeconds: Double = 0.0,
+        bassEQ: Double = 1.0,
+        midEQ: Double = 1.0,
+        trebleEQ: Double = 1.0
+    ) {
+        self.id = id
+        self.name = name
+        self.tag = tag
+        self.volume = volume
+        self.delaySeconds = delaySeconds
+        self.bassEQ = bassEQ
+        self.midEQ = midEQ
+        self.trebleEQ = trebleEQ
+    }
+}
+
+@MainActor
+public final class AudioRouterViewModel: ObservableObject {
+
+    @Published public var isRunning: Bool = false
+    @Published public var cutoffHz: Double = 120.0 {
         didSet { crossover.setCutoff(cutoffHz) }
     }
-    @Published var bassGain: Double = 1.0
-    @Published var midTrebleGain: Double = 1.0
-    @Published var errorMessage: String?
+    @Published public var errorMessage: String?
+    @Published public var deviceControls: [DeviceControlState] = []
 
-    let deviceRouting = DeviceRoutingManager()
+    public let deviceRouting = DeviceRoutingManager()
 
     private var captureSource: AudioSource?
     private let crossover = CrossoverFilter(cutoffHz: 120.0, sampleRate: 48000.0, channelCount: 2)
-    private let outputManager = DualOutputManager()
+    private let outputManager = MultiOutputManager()
+    private var cancellables = Set<AnyCancellable>()
 
-    func start() {
+    public init() {
+        // Observasi perubahan device dari routing manager
+        deviceRouting.$availableDevices
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.syncDeviceControls()
+            }
+            .store(in: &cancellables)
+
+        syncDeviceControls()
+    }
+
+    public func syncDeviceControls() {
+        let currentDevices = deviceRouting.availableDevices
+        var updatedControls: [DeviceControlState] = []
+
+        for device in currentDevices {
+            if let existing = deviceControls.first(where: { $0.id == device.id }) {
+                updatedControls.append(existing)
+            } else {
+                let defaultTag: OutputTag
+                if device.name.lowercased().contains("built-in") || device.name.lowercased().contains("terintegrasi") {
+                    defaultTag = .midTreble
+                } else {
+                    defaultTag = .bassOnly
+                }
+                updatedControls.append(DeviceControlState(
+                    id: device.id,
+                    name: device.name,
+                    tag: defaultTag,
+                    volume: 1.0,
+                    delaySeconds: 0.0,
+                    bassEQ: 1.0,
+                    midEQ: 1.0,
+                    trebleEQ: 1.0
+                ))
+            }
+        }
+
+        self.deviceControls = updatedControls
+
+        // Update device aktif di MultiOutputManager
+        let activeIDs = updatedControls.map { $0.id }
         do {
-            guard let builtIn = deviceRouting.builtInSpeakerDevice() else {
-                errorMessage = "Built-in speaker tidak ditemukan."
-                return
-            }
-            // TODO: ganti dengan device yang dipilih user dari UI, bukan device pertama.
-            guard let external = deviceRouting.availableDevices.first(where: { $0.id != builtIn.id }) else {
-                errorMessage = "Tidak ada external device yang terdeteksi."
-                return
-            }
+            try outputManager.updateActiveDevices(activeIDs)
+        } catch {
+            print("Warning: Gagal menyinkronkan active devices: \(error)")
+        }
+    }
 
-            try outputManager.configureDevices(bassDeviceID: external.id, midTrebleDeviceID: builtIn.id)
+    public func start() {
+        do {
+            // Pastikan active devices sinkron
+            syncDeviceControls()
+
+            // Konfigurasi and nyalakan output engines
             try outputManager.start()
 
+            // Inisialisasi capture source (Process Tap default)
             let source = AudioCaptureFactory.makeSource()
             source.onBuffer = { [weak self] buffer, time in
                 guard let self else { return }
                 guard let (bass, mid) = self.crossover.split(buffer) else { return }
-                self.outputManager.scheduleBass(bass, at: nil)
-                self.outputManager.scheduleMidTreble(mid, at: nil)
+
+                // Distribusikan buffer ke masing-masing device berdasarkan tag & konfigurasinya
+                for control in self.deviceControls {
+                    let targetBuffer: AVAudioPCMBuffer
+                    switch control.tag {
+                    case .bassOnly:
+                        targetBuffer = bass
+                    case .midTreble:
+                        targetBuffer = mid
+                    case .fullRange:
+                        targetBuffer = buffer
+                    }
+
+                    // Update Volume & EQ secara real-time
+                    self.outputManager.updateDeviceVolume(deviceID: control.id, volume: control.volume)
+
+                    let bassDb = (control.bassEQ - 1.0) * 12.0
+                    let midDb = (control.midEQ - 1.0) * 12.0
+                    let trebleDb = (control.trebleEQ - 1.0) * 12.0
+                    self.outputManager.updateDeviceEQ(deviceID: control.id, bassGainDb: bassDb, midGainDb: midDb, trebleGainDb: trebleDb)
+
+                    // Jadwalkan dengan parameter delay compensation
+                    self.outputManager.scheduleBuffer(targetBuffer, onDevice: control.id, anchorTime: time, delaySeconds: control.delaySeconds)
+                }
             }
+
             try source.start()
             self.captureSource = source
 
@@ -59,7 +165,7 @@ final class AudioRouterViewModel: ObservableObject {
         }
     }
 
-    func stop() {
+    public func stop() {
         captureSource?.stop()
         captureSource = nil
         outputManager.stop()
