@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Wajib jika target App Store / sandboxed -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Izin akses microphone/audio input, dibutuhkan untuk beberapa jalur capture -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Jika TIDAK sandboxed (distribusi di luar App Store dengan notarization),
+         hapus app-sandbox di atas dan aplikasi akan punya akses Core Audio HAL
+         yang lebih luas (dibutuhkan untuk Process Tap & Aggregate Device creation). -->
+</dict>
+</plist>

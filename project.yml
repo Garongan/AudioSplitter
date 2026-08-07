@@ -1,0 +1,26 @@
+name: AudioSplitter
+options:
+  bundleIdPrefix: com.yourcompany
+targets:
+  AudioSplitter:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - AudioSplitter
+    info:
+      path: AudioSplitter/Resources/Info.plist
+    entitlements:
+      path: AudioSplitter/Resources/AudioSplitter.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.audiosplitter
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        ENABLE_HARDENED_RUNTIME: YES
+    frameworks:
+      - AVFoundation
+      - CoreAudio
+      - Accelerate
