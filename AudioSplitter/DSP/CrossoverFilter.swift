@@ -10,11 +10,6 @@
 //  2nd order) supaya saat kedua band dijumlahkan kembali, responsnya flat
 //  (tanpa dip/peak di titik cutoff) dan tidak ada masalah fase.
 //
-//  TODO (lihat task list Fase 2):
-//   - Validasi koefisien biquad dengan sine sweep + FFT.
-//   - Tambahkan smoothing saat cutoff frequency berubah runtime (hindari klik).
-//   - Pertimbangkan pindah ke vDSP_biquadm untuk multi-channel (stereo) sekaligus.
-//
 
 import Accelerate
 import AVFoundation
@@ -32,7 +27,7 @@ private struct BiquadSection {
     }
 }
 
-enum FilterType {
+public enum FilterType {
     case lowPass
     case highPass
 }
@@ -74,13 +69,13 @@ private func butterworth2ndOrderCoefficients(
 }
 
 /// Filter Linkwitz-Riley 4th-order (24 dB/oktaf) = 2x cascaded Butterworth 2nd-order.
-final class LinkwitzRileyFilter {
+public final class LinkwitzRileyFilter {
 
     private var stage1: BiquadSection
     private var stage2: BiquadSection
     private let channelCount: Int
 
-    init(cutoffHz: Double, sampleRate: Double, type: FilterType, channelCount: Int) {
+    public init(cutoffHz: Double, sampleRate: Double, type: FilterType, channelCount: Int) {
         self.channelCount = channelCount
         let coeffs = butterworth2ndOrderCoefficients(
             cutoffHz: cutoffHz, sampleRate: sampleRate, type: type
@@ -89,19 +84,30 @@ final class LinkwitzRileyFilter {
         self.stage2 = BiquadSection(coefficients: coeffs, channelCount: channelCount)
     }
 
-    /// Update cutoff frequency saat runtime.
-    /// TODO: tambahkan crossfade/smoothing di sini agar tidak klik saat user
-    /// menggeser slider cutoff.
-    func updateCutoff(hz: Double, sampleRate: Double, type: FilterType) {
+    /// Update cutoff frequency saat runtime menggunakan vDSP_biquad_SetTargetsDouble
+    /// untuk interpolasi koefisien yang mulus tanpa suara klik/letup.
+    public func updateCutoff(hz: Double, sampleRate: Double, type: FilterType) {
         let coeffs = butterworth2ndOrderCoefficients(cutoffHz: hz, sampleRate: sampleRate, type: type)
         stage1.coefficients = coeffs
         stage2.coefficients = coeffs
-        if let setup = stage1.setup { vDSP_biquad_SetTargetsDouble(setup, coeffs, 0, 0, 0, 0, 1) }
-        if let setup = stage2.setup { vDSP_biquad_SetTargetsDouble(setup, coeffs, 0, 0, 0, 0, 1) }
+
+        // Gunakan vDSP_biquad_SetTargetsDouble untuk meluncurkan perubahan secara bertahap (rate 0.005)
+        if let setup1 = stage1.setup {
+            coeffs.withUnsafeBufferPointer { ptr in
+                guard let base = ptr.baseAddress else { return }
+                vDSP_biquad_SetTargetsDouble(setup1, base, base + 3, 0.005, 0.005, 0.005, 0.005, 1)
+            }
+        }
+        if let setup2 = stage2.setup {
+            coeffs.withUnsafeBufferPointer { ptr in
+                guard let base = ptr.baseAddress else { return }
+                vDSP_biquad_SetTargetsDouble(setup2, base, base + 3, 0.005, 0.005, 0.005, 0.005, 1)
+            }
+        }
     }
 
     /// Proses buffer in-place (mono channel double array).
-    func process(_ input: inout [Double]) {
+    public func process(_ input: inout [Double]) {
         guard let setup1 = stage1.setup, let setup2 = stage2.setup else { return }
         var temp = [Double](repeating: 0, count: input.count)
 
@@ -125,30 +131,28 @@ final class LinkwitzRileyFilter {
 
 /// Modul utama crossover: menerima satu buffer input, menghasilkan
 /// dua buffer output (bass, mid/treble).
-final class CrossoverFilter {
+public final class CrossoverFilter {
 
     private var lowPass: LinkwitzRileyFilter
     private var highPass: LinkwitzRileyFilter
     private let sampleRate: Double
-    private(set) var cutoffHz: Double
+    public private(set) var cutoffHz: Double
 
-    init(cutoffHz: Double = 120.0, sampleRate: Double = 48000.0, channelCount: Int = 2) {
+    public init(cutoffHz: Double = 120.0, sampleRate: Double = 48000.0, channelCount: Int = 2) {
         self.cutoffHz = cutoffHz
         self.sampleRate = sampleRate
         self.lowPass = LinkwitzRileyFilter(cutoffHz: cutoffHz, sampleRate: sampleRate, type: .lowPass, channelCount: channelCount)
         self.highPass = LinkwitzRileyFilter(cutoffHz: cutoffHz, sampleRate: sampleRate, type: .highPass, channelCount: channelCount)
     }
 
-    func setCutoff(_ hz: Double) {
+    public func setCutoff(_ hz: Double) {
         cutoffHz = hz
         lowPass.updateCutoff(hz: hz, sampleRate: sampleRate, type: .lowPass)
         highPass.updateCutoff(hz: hz, sampleRate: sampleRate, type: .highPass)
     }
 
     /// Split satu buffer PCM menjadi (bassBuffer, midTrebleBuffer).
-    /// TODO: implementasi ekstraksi channel dari AVAudioPCMBuffer ke [Double],
-    /// proses per channel, lalu tulis kembali ke dua AVAudioPCMBuffer baru.
-    func split(_ buffer: AVAudioPCMBuffer) -> (bass: AVAudioPCMBuffer, midTreble: AVAudioPCMBuffer)? {
+    public func split(_ buffer: AVAudioPCMBuffer) -> (bass: AVAudioPCMBuffer, midTreble: AVAudioPCMBuffer)? {
         guard let bassBuffer = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
               let midBuffer = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity),
               let channelData = buffer.floatChannelData else {

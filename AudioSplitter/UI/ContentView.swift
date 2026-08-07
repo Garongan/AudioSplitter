@@ -2,7 +2,8 @@
 //  ContentView.swift
 //  AudioSplitter
 //
-//  Panel kontrol utama: toggle on/off, pilih device, atur cutoff & gain.
+//  Panel kontrol utama: Grid kartu output device dengan equalizer individual,
+//  volume, output tag, dan delay compensation.
 //
 
 import SwiftUI
@@ -12,67 +13,243 @@ struct ContentView: View {
     @EnvironmentObject var router: AudioRouterViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
 
-            HStack {
-                Text("Audio Splitter")
-                    .font(.headline)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { router.isRunning },
-                    set: { newValue in
-                        newValue ? router.start() : router.stop()
+                // Header & Start/Stop Toggle
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Audio Splitter")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("macOS Frequency-Based Router")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
-                ))
-                .labelsHidden()
-            }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { router.isRunning },
+                        set: { newValue in
+                            newValue ? router.start() : router.stop()
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                }
 
-            if let error = router.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
+                if let error = router.errorMessage {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    .padding(8)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(6)
+                }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Crossover Cutoff: \(Int(router.cutoffHz)) Hz")
-                    .font(.subheadline)
-                Slider(value: $router.cutoffHz, in: 40...300, step: 1)
-            }
+                // Crossover Control Panel
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Crossover Cutoff: \(Int(router.cutoffHz)) Hz")
+                            .font(.headline)
+                        Spacer()
+                        Text("Linkwitz-Riley 4th Order")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Slider(value: $router.cutoffHz, in: 40...300, step: 1)
+                        .accentColor(.purple)
+                }
+                .padding()
+                .background(Color(NSColor.windowBackgroundColor))
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Bass Gain")
-                    .font(.subheadline)
-                Slider(value: $router.bassGain, in: 0...2)
-            }
+                Divider()
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Mid/Treble Gain")
-                    .font(.subheadline)
-                Slider(value: $router.midTrebleGain, in: 0...2)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Devices Terdeteksi")
-                    .font(.subheadline)
-                ForEach(router.deviceRouting.availableDevices) { device in
-                    Text("• \(device.name)")
+                // Connected Devices Grid/Cards
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Output Speaker Sources")
+                            .font(.headline)
+                        Spacer()
+                        Button(action: {
+                            router.deviceRouting.refreshDevices()
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Refresh")
+                        }
+                        .buttonStyle(.borderless)
                         .font(.caption)
+                    }
+
+                    if router.deviceControls.isEmpty {
+                        Text("No output devices detected.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 20)
+                    } else {
+                        // Vertical grid of device cards
+                        VStack(spacing: 12) {
+                            ForEach(0..<router.deviceControls.count, id: \.self) { index in
+                                DeviceCardView(control: $router.deviceControls[index])
+                            }
+                        }
+                    }
                 }
-                Button("Refresh Devices") {
-                    router.deviceRouting.refreshDevices()
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .keyboardShortcut("q", modifiers: .command)
                 }
-                .font(.caption)
+            }
+            .padding()
+        }
+        .frame(minHeight: 500)
+    }
+}
+
+struct DeviceCardView: View {
+    @Binding var control: DeviceControlState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                Image(systemName: isBluetoothDevice(control.name) ? "apps.iphone" : "speaker.wave.2.fill")
+                    .foregroundColor(.accentColor)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(control.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text("Device ID: \(control.id)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
             }
 
-            Divider()
-
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+            // Output Tag
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Role Tag")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $control.tag) {
+                    ForEach(OutputTag.allCases) { tag in
+                        Text(tag.rawValue).tag(tag)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
+
+            // Volume and Delay
+            VStack(spacing: 8) {
+                // Volume slider
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Volume")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(control.volume * 100))%")
+                            .font(.caption2)
+                    }
+                    HStack {
+                        Image(systemName: "speaker.wave.1")
+                            .font(.caption)
+                        Slider(value: $control.volume, in: 0...1)
+                        Image(systemName: "speaker.wave.3")
+                            .font(.caption)
+                    }
+                }
+
+                // Delay compensation slider
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Delay Compensation")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: "%.2fs", control.delaySeconds))
+                            .font(.caption2)
+                    }
+                    HStack {
+                        Image(systemName: "timer")
+                            .font(.caption)
+                        Slider(value: $control.delaySeconds, in: 0...1, step: 0.01)
+                    }
+                }
+            }
+
+            // Equalizer Section
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Device Equalizer")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Button("Flat") {
+                        control.bassEQ = 1.0
+                        control.midEQ = 1.0
+                        control.trebleEQ = 1.0
+                    }
+                    .font(.caption2)
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                }
+
+                HStack(spacing: 12) {
+                    // Bass EQ
+                    VStack {
+                        Slider(value: $control.bassEQ, in: 0...2)
+                            .controlSize(.small)
+                        Text("Bass: \(Int((control.bassEQ - 1.0) * 12.0)) dB")
+                            .font(.system(size: 8))
+                    }
+                    // Mid EQ
+                    VStack {
+                        Slider(value: $control.midEQ, in: 0...2)
+                            .controlSize(.small)
+                        Text("Mid: \(Int((control.midEQ - 1.0) * 12.0)) dB")
+                            .font(.system(size: 8))
+                    }
+                    // Treble EQ
+                    VStack {
+                        Slider(value: $control.trebleEQ, in: 0...2)
+                            .controlSize(.small)
+                        Text("Treble: \(Int((control.trebleEQ - 1.0) * 12.0)) dB")
+                            .font(.system(size: 8))
+                    }
+                }
+            }
+            .padding(8)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(6)
         }
         .padding()
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    private func isBluetoothDevice(_ name: String) -> Bool {
+        let nameLower = name.lowercased()
+        return nameLower.contains("bluetooth") || nameLower.contains("headphone") || nameLower.contains("airpods")
     }
 }
 
