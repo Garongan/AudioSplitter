@@ -117,12 +117,31 @@ public final class AudioRouterViewModel: ObservableObject {
 
         self.deviceControls = updatedControls
 
-        // Update device aktif di MultiOutputManager
+        // Update device aktif di MultiOutputManager dengan preferred channel (mono untuk bass, stereo untuk yang lain)
         let activeIDs = updatedControls.map { $0.id }
+        var preferredChannels: [AudioDeviceID: Int] = [:]
+        for control in updatedControls {
+            if control.tag == .bass {
+                preferredChannels[control.id] = 1
+            } else {
+                preferredChannels[control.id] = 2
+            }
+        }
+
         do {
-            try outputManager.updateActiveDevices(activeIDs)
+            try outputManager.updateActiveDevices(activeIDs, preferredChannels: preferredChannels)
+            errorMessage = nil
+        } catch let error as AudioOutputError {
+            switch error {
+            case .deviceUnavailable(let id):
+                errorMessage = "Perangkat audio (ID: \(id)) tidak tersedia atau gagal ditetapkan."
+            case .formatNegotiationFailed(let reason):
+                errorMessage = "Gagal menegosiasikan format audio: \(reason)"
+            case .engineStartFailed(let underlying):
+                errorMessage = "Gagal memulai engine audio: \(underlying.localizedDescription)"
+            }
         } catch {
-            print("Warning: Gagal menyinkronkan active devices: \(error)")
+            errorMessage = "Gagal menyinkronkan perangkat aktif: \(error.localizedDescription)"
         }
     }
 
@@ -130,6 +149,10 @@ public final class AudioRouterViewModel: ObservableObject {
         do {
             // Pastikan active devices sinkron
             syncDeviceControls()
+
+            if errorMessage != nil {
+                return
+            }
 
             // Konfigurasi and nyalakan output engines
             try outputManager.start()
@@ -178,6 +201,15 @@ public final class AudioRouterViewModel: ObservableObject {
 
             isRunning = true
             errorMessage = nil
+        } catch let error as AudioOutputError {
+            switch error {
+            case .deviceUnavailable(let id):
+                errorMessage = "Gagal memulai: Perangkat audio (ID: \(id)) tidak tersedia."
+            case .formatNegotiationFailed(let reason):
+                errorMessage = "Gagal memulai: Negosiasi format audio gagal (\(reason))."
+            case .engineStartFailed(let underlying):
+                errorMessage = "Gagal memulai engine audio: \(underlying.localizedDescription)"
+            }
         } catch {
             errorMessage = "Gagal memulai: \(error.localizedDescription)"
         }
