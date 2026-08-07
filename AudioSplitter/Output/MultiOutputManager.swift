@@ -10,9 +10,10 @@
 import AVFoundation
 import CoreAudio
 
-public enum OutputRoutingError: Error {
-    case deviceAssignmentFailed(String)
-    case engineStartFailed(String)
+public enum AudioOutputError: Error {
+    case deviceUnavailable(deviceID: AudioDeviceID)
+    case formatNegotiationFailed(reason: String)
+    case engineStartFailed(underlying: Error)
 }
 
 public final class DeviceOutputState {
@@ -29,7 +30,7 @@ public final class DeviceOutputState {
         engine.attach(eqNode)
     }
 
-    public func configure() throws {
+    public func configure(preferredMaxChannels: Int? = nil) throws {
         // Format Sumber default dari Crossover: 48kHz, Stereo
         let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
 
@@ -37,32 +38,35 @@ public final class DeviceOutputState {
         try assignDevice(deviceID, to: engine)
 
         // 2. Programmatic Query Format Native dari Perangkat Output Fisik
-        let nativeFormat = getDeviceNativeFormat(deviceID)
+        let (nativeRate, nativeChannels) = getDeviceNativeInfo(deviceID)
 
-        // 3. Buat standard float format yang kompatibel dengan native format (sample rate & channel count)
-        var targetFormat = sourceFormat
-        if nativeFormat.channelCount > 0 && nativeFormat.sampleRate > 0 {
-            // Menggunakan maksimal 2 channel untuk kompatibilitas EQ dan player node,
-            // sambil tetap menyelaraskan dengan native sample rate perangkat fisik.
-            let channels = min(nativeFormat.channelCount, 2)
-            if let standardFormat = AVAudioFormat(standardFormatWithSampleRate: nativeFormat.sampleRate, channels: channels) {
-                targetFormat = standardFormat
-            }
+        // 3. Tentukan channels dengan format standard float
+        // Gunakan preferredMaxChannels jika diberikan, jika tidak, batasi sesuai channel native atau default ke 2.
+        let targetChannels: UInt32
+        if let maxChannels = preferredMaxChannels {
+            targetChannels = UInt32(min(Int(nativeChannels), maxChannels))
+        } else {
+            // Default behavior: batasi maksimal 2 channel untuk output standard
+            targetChannels = min(nativeChannels, 2)
         }
+
+        let targetRate = nativeRate > 0.0 ? nativeRate : 48000.0
+        let targetFormat = AVAudioFormat(
+            standardFormatWithSampleRate: targetRate,
+            channels: AVAudioChannelCount(targetChannels > 0 ? targetChannels : 2)
+        ) ?? sourceFormat
 
         // 4. Hubungkan player -> EQ menggunakan source format (48kHz)
         engine.connect(playerNode, to: eqNode, format: sourceFormat)
 
-        // 5. Hubungkan EQ -> Mixer menggunakan targetFormat (standard float format).
-        //    AVAudioEngine secara otomatis mengonfigurasi SRC (Sample Rate Converter) yang sangat efisien
-        //    di bawah tenda untuk menyelaraskan buffer 48kHz ke laju fisik native (misalnya 44.1kHz atau 96kHz).
-        engine.connect(eqNode, to: engine.mainMixerNode, format: targetFormat)
+        // 5. Hubungkan EQ -> Mixer menggunakan source format (48kHz).
+        //    Menghindari format mismatch pada effect node.
+        engine.connect(eqNode, to: engine.mainMixerNode, format: sourceFormat)
 
-        // 6. Hubungkan Mixer -> Output menggunakan targetFormat secara eksplisit.
-        //    Untuk menghindari kAudioUnitErr_FormatNotSupported (-10868), koneksi node ke output unit
-        //    harus menggunakan format float standard de-interleaved yang diturunkan dari format fisik,
-        //    bukan format hardware mentah secara otomatis.
-        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: targetFormat)
+        // 6. Hubungkan Mixer -> Output menggunakan format nil secara eksplisit.
+        //    Untuk menghindari kAudioUnitErr_FormatNotSupported (-10868), koneksi ke output unit
+        //    harus membiarkan AVAudioEngine bernegosiasi secara otomatis dengan format native device fisik.
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
 
         // Konfigurasi awal 3-band parametric EQ (Bass, Mid, Treble)
         setupEQ()
@@ -70,7 +74,7 @@ public final class DeviceOutputState {
 
     private func assignDevice(_ deviceID: AudioDeviceID, to engine: AVAudioEngine) throws {
         guard let audioUnit = engine.outputNode.audioUnit else {
-            throw OutputRoutingError.deviceAssignmentFailed("No AudioUnit on output node")
+            throw AudioOutputError.deviceUnavailable(deviceID: deviceID)
         }
         var mutableDeviceID = deviceID
         let status = AudioUnitSetProperty(
@@ -82,7 +86,7 @@ public final class DeviceOutputState {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         guard status == noErr else {
-            throw OutputRoutingError.deviceAssignmentFailed("Gagal menetapkan kAudioOutputUnitProperty_CurrentDevice (OSStatus \(status))")
+            throw AudioOutputError.deviceUnavailable(deviceID: deviceID)
         }
     }
 
@@ -124,7 +128,7 @@ public final class DeviceOutputState {
             playerNode.play()
             isEngineRunning = true
         } catch {
-            throw OutputRoutingError.engineStartFailed(error.localizedDescription)
+            throw AudioOutputError.engineStartFailed(underlying: error)
         }
     }
 
@@ -138,26 +142,64 @@ public final class DeviceOutputState {
         playerNode.scheduleBuffer(buffer, at: time, options: .interrupts)
     }
 
-    /// Query format fisik native dari Core Audio Hardware Layer (HAL).
-    private func getDeviceNativeFormat(_ deviceID: AudioDeviceID) -> AVAudioFormat {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreamFormat,
+    /// Query nominal sample rate and channel count directly from Core Audio HAL.
+    private func getDeviceNativeInfo(_ deviceID: AudioDeviceID) -> (sampleRate: Double, channelCount: UInt32) {
+        var sampleRate: Double = 48000.0
+        var channelCount: UInt32 = 2
+
+        // 1. Query Nominal Sample Rate
+        var rateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
             mScope: kAudioDevicePropertyScopeOutput,
             mElement: 0
         )
+        var rateSize = UInt32(MemoryLayout<Double>.size)
+        let rateStatus = AudioObjectGetPropertyData(deviceID, &rateAddress, 0, nil, &rateSize, &sampleRate)
 
-        var streamDesc = AudioStreamBasicDescription()
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &streamDesc)
-
-        if status == noErr {
-            if let format = AVAudioFormat(streamDescription: &streamDesc) {
-                return format
+        // 2. Query Channel Count via Stream Configuration
+        var configAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: 0
+        )
+        var configSize: UInt32 = 0
+        let configStatusSize = AudioObjectGetPropertyDataSize(deviceID, &configAddress, 0, nil, &configSize)
+        if configStatusSize == noErr && configSize > 0 {
+            let pointer = UnsafeMutableRawPointer.allocate(byteCount: Int(configSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+            defer { pointer.deallocate() }
+            let configStatusData = AudioObjectGetPropertyData(deviceID, &configAddress, 0, nil, &configSize, pointer)
+            if configStatusData == noErr {
+                let bufferList = pointer.assumingMemoryBound(to: AudioBufferList.self)
+                let audioBufferListPointer = UnsafeMutableAudioBufferListPointer(bufferList)
+                var totalChannels: UInt32 = 0
+                for buffer in audioBufferListPointer {
+                    totalChannels += buffer.mNumberChannels
+                }
+                if totalChannels > 0 {
+                    channelCount = totalChannels
+                }
+            }
+        } else {
+            // Fallback to Stream Format if Stream Configuration is not available
+            var streamAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreamFormat,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: 0
+            )
+            var streamDesc = AudioStreamBasicDescription()
+            var streamSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+            let streamStatus = AudioObjectGetPropertyData(deviceID, &streamAddress, 0, nil, &streamSize, &streamDesc)
+            if streamStatus == noErr {
+                if streamDesc.mChannelsPerFrame > 0 {
+                    channelCount = streamDesc.mChannelsPerFrame
+                }
+                if rateStatus != noErr && streamDesc.mSampleRate > 0.0 {
+                    sampleRate = streamDesc.mSampleRate
+                }
             }
         }
 
-        // Fallback default jika terjadi kegagalan query HAL
-        return AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
+        return (sampleRate, channelCount)
     }
 }
 
@@ -168,8 +210,8 @@ public final class MultiOutputManager {
 
     public init() {}
 
-    /// Mengonfigurasi engine baru untuk list device id yang aktif saat ini.
-    public func updateActiveDevices(_ deviceIDs: [AudioDeviceID]) throws {
+    /// Mengonfigurasi engine baru untuk list device id yang aktif saat ini dengan preferred max channel count.
+    public func updateActiveDevices(_ deviceIDs: [AudioDeviceID], preferredChannels: [AudioDeviceID: Int] = [:]) throws {
         // Hentikan dan hapus device yang tidak lagi aktif
         for (id, state) in deviceStates {
             if !deviceIDs.contains(id) {
@@ -182,7 +224,7 @@ public final class MultiOutputManager {
         for id in deviceIDs {
             if deviceStates[id] == nil {
                 let state = DeviceOutputState(deviceID: id)
-                try state.configure()
+                try state.configure(preferredMaxChannels: preferredChannels[id])
                 if isRunning {
                     try state.start()
                 }
