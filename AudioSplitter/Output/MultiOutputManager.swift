@@ -33,19 +33,30 @@ public final class DeviceOutputState {
         // Format Sumber default dari Crossover: 48kHz, Stereo
         let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
 
-        // 1. Programmatic Query Format Native dari Perangkat Output Fisik
+        // 1. Tetapkan physical output device pada output unit terlebih dahulu
+        try assignDevice(deviceID, to: engine)
+
+        // 2. Programmatic Query Format Native dari Perangkat Output Fisik
         let nativeFormat = getDeviceNativeFormat(deviceID)
 
-        // 2. Hubungkan player -> EQ menggunakan source format (48kHz)
+        // 3. Buat standard float format yang kompatibel dengan native format (sample rate & channel count)
+        var targetFormat = sourceFormat
+        if nativeFormat.channelCount > 0 && nativeFormat.sampleRate > 0 {
+            // Menggunakan maksimal 2 channel untuk kompatibilitas EQ dan player node,
+            // sambil tetap menyelaraskan dengan native sample rate perangkat fisik.
+            let channels = min(nativeFormat.channelCount, 2)
+            if let standardFormat = AVAudioFormat(standardFormatWithSampleRate: nativeFormat.sampleRate, channels: channels) {
+                targetFormat = standardFormat
+            }
+        }
+
+        // 4. Hubungkan player -> EQ menggunakan source format (48kHz)
         engine.connect(playerNode, to: eqNode, format: sourceFormat)
 
-        // 3. Hubungkan EQ -> Mixer menggunakan nativeFormat perangkat fisik.
+        // 5. Hubungkan EQ -> Mixer menggunakan targetFormat (standard float format).
         //    AVAudioEngine secara otomatis mengonfigurasi SRC (Sample Rate Converter) yang sangat efisien
         //    di bawah tenda untuk menyelaraskan buffer 48kHz ke laju fisik native (misalnya 44.1kHz atau 96kHz).
-        engine.connect(eqNode, to: engine.mainMixerNode, format: nativeFormat)
-
-        // Tetapkan physical output device pada output unit
-        try assignDevice(deviceID, to: engine)
+        engine.connect(eqNode, to: engine.mainMixerNode, format: targetFormat)
 
         // Konfigurasi awal 3-band parametric EQ (Bass, Mid, Treble)
         setupEQ()
