@@ -6,8 +6,28 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BD6CE06530263300001FE411 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; };
+		BD6CE06630263300001FE411 /* XCTest.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BD6CE06430263300001FE411 /* XCTest.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BD6CE06730263300001FE411 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				BD6CE06630263300001FE411 /* XCTest.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		BD6CE0353025F983001FE411 /* AudioSplitter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioSplitter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD6CE06430263300001FE411 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BD6CE06530263300001FE411 /* XCTest.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -33,6 +54,7 @@
 			isa = PBXGroup;
 			children = (
 				BD6CE0373025F983001FE411 /* AudioSplitter */,
+				BD6CE06330263300001FE411 /* Frameworks */,
 				BD6CE0363025F983001FE411 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -45,6 +67,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		BD6CE06330263300001FE411 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BD6CE06430263300001FE411 /* XCTest.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -55,6 +85,7 @@
 				BD6CE0313025F983001FE411 /* Sources */,
 				BD6CE0323025F983001FE411 /* Frameworks */,
 				BD6CE0333025F983001FE411 /* Resources */,
+				BD6CE06730263300001FE411 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);

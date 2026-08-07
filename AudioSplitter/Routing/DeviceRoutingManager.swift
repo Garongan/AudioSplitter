@@ -9,6 +9,14 @@
 
 import CoreAudio
 import Foundation
+import Combine
+
+private final class DeviceRoutingContextRegistry {
+    // These are accessed from nonisolated contexts (e.g., Core Audio callbacks).
+    // Mark them nonisolated to opt out of main-actor isolation for this storage.
+    nonisolated(unsafe) static let lock = NSLock()
+    nonisolated(unsafe) static var activeContexts = Set<UnsafeMutableRawPointer>()
+}
 
 public struct AudioDeviceInfo: Identifiable, Hashable {
     public let id: AudioDeviceID
@@ -27,26 +35,22 @@ public final class DeviceRoutingManager: ObservableObject {
 
     @Published public private(set) var availableDevices: [AudioDeviceInfo] = []
 
-    // Mutex lock and registry untuk lifetime tracking thread-safe dari callback context
-    private static let lock = NSLock()
-    private static var activeContexts = Set<UnsafeMutableRawPointer>()
-
-    private static func registerContext(_ context: UnsafeMutableRawPointer) {
-        lock.lock()
-        activeContexts.insert(context)
-        lock.unlock()
+    nonisolated private static func registerContext(_ context: UnsafeMutableRawPointer) {
+        DeviceRoutingContextRegistry.lock.lock()
+        DeviceRoutingContextRegistry.activeContexts.insert(context)
+        DeviceRoutingContextRegistry.lock.unlock()
     }
 
-    private static func unregisterContext(_ context: UnsafeMutableRawPointer) {
-        lock.lock()
-        activeContexts.remove(context)
-        lock.unlock()
+    nonisolated private static func unregisterContext(_ context: UnsafeMutableRawPointer) {
+        DeviceRoutingContextRegistry.lock.lock()
+        DeviceRoutingContextRegistry.activeContexts.remove(context)
+        DeviceRoutingContextRegistry.lock.unlock()
     }
 
-    private static func isContextActive(_ context: UnsafeMutableRawPointer) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return activeContexts.contains(context)
+    nonisolated private static func isContextActive(_ context: UnsafeMutableRawPointer) -> Bool {
+        DeviceRoutingContextRegistry.lock.lock()
+        defer { DeviceRoutingContextRegistry.lock.unlock() }
+        return DeviceRoutingContextRegistry.activeContexts.contains(context)
     }
 
     private let listenerProc: AudioObjectPropertyListenerProc = { (objectID, numberAddresses, addresses, clientData) -> OSStatus in
@@ -224,3 +228,4 @@ public final class DeviceRoutingManager: ObservableObject {
         return aggregateID
     }
 }
+

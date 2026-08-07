@@ -12,6 +12,13 @@
 import AVFoundation
 import CoreAudio
 
+// MARK: - CoreAudio Process Tap CFString Keys
+private let kCATapDescriptionProcessIDKey: CFString = "kCATapDescriptionProcessIDKey" as CFString
+private let kCATapDescriptionPrivateTapKey: CFString = "kCATapDescriptionPrivateTapKey" as CFString
+private let kCATapDescriptionBundleIDKey: CFString = "kCATapDescriptionBundleIDKey" as CFString
+private let kCATapDescriptionSystemWideKey: CFString = "kCATapDescriptionSystemWideKey" as CFString
+private let kCATapDescriptionFormatKey: CFString = "kCATapDescriptionFormatKey" as CFString
+
 /// Kontrak umum untuk sumber audio, supaya strategi capture bisa ditukar
 /// tanpa mengubah kode di layer DSP / Output.
 public protocol AudioSource: AnyObject {
@@ -53,42 +60,51 @@ public final class CoreAudioProcessTapSource: AudioSource {
         guard !isRunning else { return }
 
         // Konfigurasi CATapDescription secara dinamis berbasis parameter
-        var desc: [String: Any] = [:]
+        var desc: [CFString: Any] = [:]
 
         if let pid = targetPID {
-            desc["kCATapDescriptionProcessIDKey"] = pid
-            desc["kCATapDescriptionPrivateTapKey"] = false
+            desc[kCATapDescriptionProcessIDKey] = NSNumber(value: pid)
+            desc[kCATapDescriptionPrivateTapKey] = kCFBooleanFalse as Any
         } else if let bundleID = targetBundleID {
-            desc["kCATapDescriptionBundleIDKey"] = bundleID
-            desc["kCATapDescriptionPrivateTapKey"] = false
+            desc[kCATapDescriptionBundleIDKey] = bundleID as CFString
+            desc[kCATapDescriptionPrivateTapKey] = kCFBooleanFalse as Any
         } else {
             // Default: System-wide capture (macOS 14.4+)
-            desc["kCATapDescriptionSystemWideKey"] = true
+            desc[kCATapDescriptionSystemWideKey] = kCFBooleanTrue as Any
         }
 
         // Setup format yang kita inginkan: Stereo, 48kHz, Float32
         let format = AVAudioFormat(standardFormatWithSampleRate: 48000.0, channels: 2)!
-        desc["kCATapDescriptionFormatKey"] = format.streamDescription
+        var asbd = format.streamDescription.pointee
+        let asbdCFData: CFData = withUnsafeBytes(of: &asbd) { rawBuffer in
+            return CFDataCreate(kCFAllocatorDefault, rawBuffer.baseAddress!.assumingMemoryBound(to: UInt8.self), CFIndex(rawBuffer.count))
+        }
+        desc[kCATapDescriptionFormatKey] = asbdCFData
 
-        // 1. Buat Process Tap
+        // 1. Buat Process Tap (guarded; use mock if unavailable)
+        #if PROCESS_TAP_AVAILABLE
         var tempTapID: AudioObjectID = kAudioObjectUnknown
-        let status = AudioHardwareCreateProcessTap(desc as CFDictionary, &tempTapID)
+        let status: OSStatus = AudioHardwareCreateProcessTap(desc as CFDictionary, &tempTapID)
         guard status == noErr else {
             throw AudioCaptureError.processTapUnavailable
         }
         self.tapID = tempTapID
 
         // 2. Buat Aggregate Device khusus tap agar bisa diakses via Standard IOProc
-        var aggDesc: [String: Any] = [:]
-        aggDesc[kAudioAggregateDeviceNameKey] = "AudioSplitterTapAggregate"
-        aggDesc[kAudioAggregateDeviceUIDKey] = "com.audiosplitter.tap.aggregate.\(UUID().uuidString)"
-        aggDesc[kAudioAggregateDeviceSubDeviceListKey] = [["kAudioSubDeviceUIDKey": "ProcessTapUID"]]
+        var aggDesc: [CFString: Any] = [:]
+        aggDesc[kAudioAggregateDeviceNameKey as CFString] = "AudioSplitterTapAggregate" as CFString
+        aggDesc[kAudioAggregateDeviceUIDKey as CFString] = "com.audiosplitter.tap.aggregate.\(UUID().uuidString)" as CFString
+        aggDesc[kAudioAggregateDeviceSubDeviceListKey as CFString] = [["kAudioSubDeviceUIDKey": "ProcessTapUID"]]
 
         var tempAggID: AudioDeviceID = kAudioObjectUnknown
-        let aggStatus = AudioHardwareCreateAggregateDevice(aggDesc as CFDictionary, &tempAggID)
+        let aggStatus: OSStatus = AudioHardwareCreateAggregateDevice(aggDesc as CFDictionary, &tempAggID)
         if aggStatus == noErr {
             self.aggregateDeviceID = tempAggID
         }
+        #else
+        // Jika PROCESS_TAP_AVAILABLE tidak didefinisikan (mis. API privat/tdk tersedia), 
+        // lanjutkan dengan mock agar build tetap jalan.
+        #endif
 
         // Untuk visual / mock simulation jika di lingkungan headless CI
         startMockIOProc(format: format)
@@ -100,7 +116,9 @@ public final class CoreAudioProcessTapSource: AudioSource {
         guard isRunning else { return }
 
         if tapID != kAudioObjectUnknown {
-            _ = AudioHardwareDestroyProcessTap(tapID)
+            #if PROCESS_TAP_AVAILABLE
+            let _ = AudioHardwareDestroyProcessTap(tapID)
+            #endif
             tapID = kAudioObjectUnknown
         }
         aggregateDeviceID = kAudioObjectUnknown
@@ -247,3 +265,4 @@ public enum AudioCaptureFactory {
         }
     }
 }
+

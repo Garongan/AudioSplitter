@@ -16,20 +16,16 @@ import AVFoundation
 
 /// Satu biquad section (2nd order IIR filter) dengan status targeting persisten untuk real-time threads.
 private struct BiquadSection {
-    var coefficients: [Double] // [b0, b1, b2, a1, a2] format vDSP_biquad
+    var coefficients: [Float] // [b0, b1, b2, a1, a2] format vDSP_biquad (Float)
     var setup: vDSP_biquad_Setup?
-    var delay: [Double] // state / delay line, 4 x channelCount
+    var delay: [Float] // state / delay line, 4 x channelCount
 
-    // Parameter targeting persisten untuk mencegah alokasi memori pada thread audio real-time
-    var bRate: Double = 0.0
-    var aRate: Double = 0.0
-    var bIncrement: Double = 0.005
-    var aIncrement: Double = 0.005
-
-    init(coefficients: [Double], channelCount: Int) {
+    init(coefficients: [Float], channelCount: Int) {
         self.coefficients = coefficients
-        self.setup = vDSP_biquad_CreateSetup(coefficients, 1)
-        self.delay = [Double](repeating: 0, count: 4 * channelCount)
+        self.setup = coefficients.withUnsafeBufferPointer { ptr in
+            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
+        }
+        self.delay = [Float](repeating: 0, count: 4 * channelCount)
     }
 }
 
@@ -43,7 +39,7 @@ private func butterworth2ndOrderCoefficients(
     cutoffHz: Double,
     sampleRate: Double,
     type: FilterType
-) -> [Double] {
+) -> [Float] {
     let omega = 2.0 * .pi * cutoffHz / sampleRate
     let sinOmega = sin(omega)
     let cosOmega = cos(omega)
@@ -68,8 +64,12 @@ private func butterworth2ndOrderCoefficients(
     a1 = -2 * cosOmega
     a2 = 1 - alpha
 
-    // Normalisasi & format sesuai vDSP_biquad: [b0,b1,b2,a1,a2]
-    return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0]
+    let c0 = Float(b0 / a0)
+    let c1 = Float(b1 / a0)
+    let c2 = Float(b2 / a0)
+    let c3 = Float(a1 / a0)
+    let c4 = Float(a2 / a0)
+    return [c0, c1, c2, c3, c4]
 }
 
 /// Filter Linkwitz-Riley 4th-order (2x cascaded Butterworth 2nd-order).
@@ -88,46 +88,30 @@ public final class LinkwitzRileyFilter {
         self.stage2 = BiquadSection(coefficients: coeffs, channelCount: channelCount)
     }
 
-    /// Update cutoff frequency secara mulus menggunakan vDSP_biquad_SetTargetsDouble.
-    /// Mempertahankan delay lines dan setup untuk transisi glitch-free tanpa alokasi memori real-time.
+    /// Update cutoff frequency by rebuilding setups. Do not call on the realtime thread.
     public func updateCutoff(hz: Double, sampleRate: Double, type: FilterType) {
         let coeffs = butterworth2ndOrderCoefficients(cutoffHz: hz, sampleRate: sampleRate, type: type)
+        // Destroy old setups
+        if let s = stage1.setup { vDSP_biquad_DestroySetup(s) }
+        if let s = stage2.setup { vDSP_biquad_DestroySetup(s) }
+        // Reset delay lines when filter changes to avoid artifacts due to topology change
+        stage1.delay = [Float](repeating: 0, count: stage1.delay.count)
+        stage2.delay = [Float](repeating: 0, count: stage2.delay.count)
+        // Assign new coefficients and setups
         stage1.coefficients = coeffs
         stage2.coefficients = coeffs
-
-        var bTargets = [coeffs[0], coeffs[1], coeffs[2]]
-        var aTargets = [coeffs[3], coeffs[4]]
-
-        if let setup1 = stage1.setup {
-            vDSP_biquad_SetTargetsDouble(
-                setup1,
-                &bTargets,
-                &aTargets,
-                &stage1.bIncrement,
-                &stage1.aIncrement,
-                &stage1.bRate,
-                &stage1.aRate,
-                1
-            )
+        stage1.setup = coeffs.withUnsafeBufferPointer { ptr in
+            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
         }
-        if let setup2 = stage2.setup {
-            vDSP_biquad_SetTargetsDouble(
-                setup2,
-                &bTargets,
-                &aTargets,
-                &stage2.bIncrement,
-                &stage2.aIncrement,
-                &stage2.bRate,
-                &stage2.aRate,
-                1
-            )
+        stage2.setup = coeffs.withUnsafeBufferPointer { ptr in
+            vDSP_biquad_CreateSetup(ptr.baseAddress, 1)
         }
     }
 
-    /// Proses buffer in-place (mono channel double array).
-    public func process(_ input: inout [Double]) {
+    /// Process buffer in-place (mono channel float array) using Float vDSP APIs.
+    public func process(_ input: inout [Float]) {
         guard let setup1 = stage1.setup, let setup2 = stage2.setup else { return }
-        var temp = [Double](repeating: 0, count: input.count)
+        var temp = [Float](repeating: 0, count: input.count)
 
         input.withUnsafeMutableBufferPointer { inPtr in
             temp.withUnsafeMutableBufferPointer { tempPtr in
@@ -221,9 +205,9 @@ public final class CrossoverFilter {
         let channelCount = Int(buffer.format.channelCount)
 
         for ch in 0..<channelCount {
-            var samples = [Double](repeating: 0, count: frameCount)
+            var samples = [Float](repeating: 0, count: frameCount)
             for i in 0..<frameCount {
-                samples[i] = Double(channelData[ch][i])
+                samples[i] = channelData[ch][i]
             }
 
             // 1. Crossover pertama: Pisahkan Bass
@@ -246,12 +230,13 @@ public final class CrossoverFilter {
                   let trebleData = trebleBuffer.floatChannelData else { continue }
 
             for i in 0..<frameCount {
-                bassData[ch][i] = Float(bassSamples[i])
-                midData[ch][i] = Float(midSamples[i])
-                trebleData[ch][i] = Float(trebleSamples[i])
+                bassData[ch][i] = bassSamples[i]
+                midData[ch][i] = midSamples[i]
+                trebleData[ch][i] = trebleSamples[i]
             }
         }
 
         return (bassBuffer, midBuffer, trebleBuffer)
     }
 }
+
