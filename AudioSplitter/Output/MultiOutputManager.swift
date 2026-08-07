@@ -58,6 +58,12 @@ public final class DeviceOutputState {
         //    di bawah tenda untuk menyelaraskan buffer 48kHz ke laju fisik native (misalnya 44.1kHz atau 96kHz).
         engine.connect(eqNode, to: engine.mainMixerNode, format: targetFormat)
 
+        // 6. Hubungkan Mixer -> Output menggunakan targetFormat secara eksplisit.
+        //    Untuk menghindari kAudioUnitErr_FormatNotSupported (-10868), koneksi node ke output unit
+        //    harus menggunakan format float standard de-interleaved yang diturunkan dari format fisik,
+        //    bukan format hardware mentah secara otomatis.
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: targetFormat)
+
         // Konfigurasi awal 3-band parametric EQ (Bass, Mid, Treble)
         setupEQ()
     }
