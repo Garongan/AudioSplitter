@@ -112,15 +112,16 @@ final class AudioSplitterTests: XCTestCase {
         XCTAssertNotNil(builtIn)
     }
 
-    /// Menguji 6 kategori tag yang baru.
+    /// Menguji 7 kategori tag yang baru termasuk tag all.
     func testOutputTagCases() {
         let cases = OutputTag.allCases
-        XCTAssertEqual(cases.count, 6)
+        XCTAssertEqual(cases.count, 7)
         XCTAssertTrue(cases.contains(.bass))
         XCTAssertTrue(cases.contains(.bassMid))
         XCTAssertTrue(cases.contains(.bassTreble))
         XCTAssertTrue(cases.contains(.mid))
         XCTAssertTrue(cases.contains(.midTreble))
         XCTAssertTrue(cases.contains(.treble))
+        XCTAssertTrue(cases.contains(.all))
     }
 }
