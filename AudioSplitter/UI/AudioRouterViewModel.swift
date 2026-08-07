@@ -17,6 +17,7 @@ public enum OutputTag: String, CaseIterable, Identifiable {
     case mid = "Mid"
     case midTreble = "Mid Treble"
     case treble = "Treble"
+    case all = "All"
 
     public var id: String { self.rawValue }
 }
@@ -155,6 +156,8 @@ public final class AudioRouterViewModel: ObservableObject {
                         targetBuffer = self.combine(mid, treble)
                     case .treble:
                         targetBuffer = treble
+                    case .all:
+                        targetBuffer = self.combineAll(bass, mid, treble)
                     }
 
                     // Update Volume & EQ secara real-time
@@ -204,6 +207,35 @@ public final class AudioRouterViewModel: ObservableObject {
         for ch in 0..<channels {
             for f in 0..<frames {
                 outData[ch][f] = firstData[ch][f] + secondData[ch][f]
+            }
+        }
+        return outBuffer
+    }
+
+    /// Menggabungkan tiga buffer PCM dengan menjumlahkan data sinyalnya serta meredam level volume secara aman
+    /// guna menghindari clipping / distorsi digital (all band split).
+    private func combineAll(_ bass: AVAudioPCMBuffer, _ mid: AVAudioPCMBuffer, _ treble: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let bassData = bass.floatChannelData,
+              let midData = mid.floatChannelData,
+              let trebleData = treble.floatChannelData,
+              let outBuffer = AVAudioPCMBuffer(pcmFormat: bass.format, frameCapacity: bass.frameCapacity) else {
+            return bass
+        }
+
+        outBuffer.frameLength = bass.frameLength
+        let channels = Int(bass.format.channelCount)
+        let frames = Int(bass.frameLength)
+
+        guard let outData = outBuffer.floatChannelData else { return bass }
+
+        // Meredam amplitudo gabungan dengan faktor pengali yang aman (misalnya 0.7 atau sepertiga)
+        // dan melakukan clamping ke rentang [-1.0, 1.0] untuk memastikan tidak ada distorsi keras.
+        let scalingFactor: Float = 0.7
+
+        for ch in 0..<channels {
+            for f in 0..<frames {
+                let sum = (bassData[ch][f] + midData[ch][f] + trebleData[ch][f]) * scalingFactor
+                outData[ch][f] = max(-1.0, min(1.0, sum))
             }
         }
         return outBuffer

@@ -189,7 +189,14 @@ public final class DeviceRoutingManager: ObservableObject {
             )
             let hasOutput = (streamStatus == noErr && streamsSize > 0)
 
-            if hasOutput {
+            // Saring (filter out) CADefaultDeviceAggregate / CADefaultDeviceAgregate
+            // serta multi-output/aggregate tap internal kita dari daftar output fisik utama.
+            let nameLower = deviceName.lowercased()
+            let isAggregateOrTap = nameLower.contains("cadefaultdeviceaggregate") ||
+                                   nameLower.contains("cadefaultdeviceagregate") ||
+                                   nameLower.contains("audiosplittertapaggregate")
+
+            if hasOutput && !isAggregateOrTap {
                 discovered.append(AudioDeviceInfo(id: deviceID, name: deviceName, hasOutput: true))
             }
         }
